@@ -17,9 +17,9 @@ export const config = {
  * Expands tilde (~) in path to user's home directory
  */
 export function expandHomePath(filepath: string): string {
-  if (filepath.startsWith('~/')) {
+  if (filepath === '~' || filepath.startsWith('~/')) {
     const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-    return path.join(homeDir, filepath.slice(2));
+    return filepath === '~' ? homeDir : path.join(homeDir, filepath.slice(2));
   }
   return filepath;
 }

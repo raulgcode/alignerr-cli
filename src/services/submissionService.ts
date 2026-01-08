@@ -4,7 +4,7 @@ import * as tar from 'tar';
 import process from 'process';
 import { config, expandHomePath, getCurrentDateString } from '../utils/config.js';
 import { promptForFilename, promptForUuid } from '../utils/prompts.js';
-import { getCurrentCommitHash } from '../utils/git.js';
+import { getCurrentCommitHash, gitAddAll, createGitDiff, applyGitDiff } from '../utils/git.js';
 
 /**
  * Resolves the source path with priority: parameter > env > current directory
@@ -79,6 +79,58 @@ async function createTarFile(submissionDir: string, filename: string, sourcePath
 }
 
 /**
+ * Extracts a tar file to a specific directory
+ */
+async function extractTarFile(tarPath: string, outputDir: string): Promise<string> {
+  try {
+    await tar.extract({
+      file: tarPath,
+      cwd: outputDir,
+    });
+    
+    // Return the path of the extracted content
+    // The tar was created from the source directory, so we need to find what was extracted
+    const files = await fs.readdir(outputDir);
+    const tarFileName = path.basename(tarPath);
+    
+    // Find the extracted directory (not the tar file itself, not system files)
+    const extractedDir = await (async () => {
+      for (const file of files) {
+        if (file === tarFileName || file.startsWith('.') || file.startsWith('initial-hash.') || file.startsWith('uuid.')) {
+          continue;
+        }
+        
+        const fullPath = path.join(outputDir, file);
+        const stats = await fs.stat(fullPath);
+        if (stats.isDirectory()) {
+          return file;
+        }
+      }
+      return null;
+    })();
+    
+    if (!extractedDir) {
+      throw new Error('Could not find extracted directory');
+    }
+    
+    return path.join(outputDir, extractedDir);
+  } catch (error) {
+    throw new Error(`Failed to extract tar file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
+ * Removes a directory and all its contents
+ */
+async function removeDirectory(dirPath: string): Promise<void> {
+  try {
+    await fs.rm(dirPath, { recursive: true, force: true });
+  } catch (error) {
+    throw new Error(`Failed to remove directory: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
  * Saves the git commit hash to a file
  */
 async function saveCommitHash(submissionDir: string, hash: string, sourcePath: string): Promise<void> {
@@ -144,6 +196,147 @@ export async function initSubmission(
     console.log('\n✅ Submission initialized successfully!');
   } catch (error) {
     console.error('\n❌ Error initializing submission:');
+    console.error(error instanceof Error ? error.message : 'Unknown error');
+    process.exit(1);
+  }
+}
+
+/**
+ * Reads the commit hash from the initial-hash file
+ */
+async function readCommitHash(submissionDir: string): Promise<string> {
+  try {
+    const files = await fs.readdir(submissionDir);
+    const hashFile = files.find(file => file.startsWith('initial-hash.'));
+    
+    if (!hashFile) {
+      throw new Error('Commit hash file not found. Please run the init command first (--init).');
+    }
+    
+    const hash = hashFile.replace('initial-hash.', '');
+    return hash;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`Submission directory not found: ${submissionDir}. Please run the init command first (--init).`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Reads the UUID from the uuid file
+ */
+async function readUuid(submissionDir: string): Promise<string> {
+  try {
+    const files = await fs.readdir(submissionDir);
+    const uuidFile = files.find(file => file.startsWith('uuid.'));
+    
+    if (!uuidFile) {
+      throw new Error('UUID file not found. Please run the init command first (--init).');
+    }
+    
+    const uuid = uuidFile.replace('uuid.', '');
+    return uuid;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`Submission directory not found: ${submissionDir}. Please run the init command first (--init).`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Finalizes a submission by creating a diff from the initial commit
+ */
+export async function finalizeSubmission(providedSource?: string): Promise<void> {
+  let extractedPath: string | null = null;
+  
+  try {
+    console.log('🏁 Finalizing alignerr submission...\n');
+    
+    // Resolve source path first (parameter > env > cwd)
+    const sourcePath = resolveSourcePath(providedSource);
+    
+    // Get current date
+    const dateString = getCurrentDateString();
+    
+    // Get submission directory
+    const basePath = expandHomePath(config.basePath);
+    const submissionDir = path.join(basePath, 'submissions', dateString);
+    
+    // Read commit hash and UUID from files
+    const commitHash = await readCommitHash(submissionDir);
+    const uuid = await readUuid(submissionDir);
+    
+    console.log(`✓ Found initial commit hash: ${commitHash}`);
+    console.log(`✓ Found task UUID: ${uuid}\n`);
+    
+    // Find the tar file
+    const files = await fs.readdir(submissionDir);
+    const tarFile = files.find(f => f.endsWith('.tar'));
+    
+    if (!tarFile) {
+      throw new Error('No tar file found in submission directory. Please run --init first.');
+    }
+    
+    const tarPath = path.join(submissionDir, tarFile);
+    
+    // Extract tar file
+    console.log('📦 Extracting tar file...');
+    extractedPath = await extractTarFile(tarPath, submissionDir);
+    console.log(`✓ Extracted to: ${extractedPath}\n`);
+    
+    // Run git add -A
+    console.log('📦 Adding all files to git...');
+    await gitAddAll(sourcePath);
+    console.log(`✓ Executed: git add -A in ${sourcePath}\n`);
+    
+    // Create diff file
+    const homePath = expandHomePath('~');
+    const diffPath = path.join(homePath, `${uuid}_final.diff`);
+    
+    console.log('📝 Creating diff...');
+    await createGitDiff(commitHash, diffPath, sourcePath);
+    console.log(`✓ Created diff file: ${diffPath}`);
+    
+    // Copy diff file to submission directory
+    const submissionDiffPath = path.join(submissionDir, `${uuid}_final.diff`);
+    await fs.copyFile(diffPath, submissionDiffPath);
+    console.log(`✓ Saved diff to submission folder: ${submissionDiffPath}\n`);
+    
+    // Apply the diff to the extracted directory
+    console.log('🔧 Applying diff to extracted files...');
+    const applyResult = await applyGitDiff(diffPath, extractedPath);
+    
+    if (applyResult.success) {
+      console.log('✅ Diff applied successfully!\n');
+      console.log('✅ All changes are compatible with the initial submission.');
+    } else {
+      console.log('❌ Failed to apply diff.\n');
+      console.log('Reason:');
+      console.log(applyResult.error);
+      console.log('\n⚠️  This might indicate conflicts or incompatible changes.');
+    }
+    
+    // Cleanup: Remove extracted directory
+    if (extractedPath) {
+      console.log('\n🧹 Cleaning up extracted files...');
+      await removeDirectory(extractedPath);
+      console.log(`✓ Removed: ${extractedPath}`);
+    }
+    
+    console.log('\n✅ Submission finalized successfully!');
+  } catch (error) {
+    // Cleanup on error
+    if (extractedPath) {
+      try {
+        await removeDirectory(extractedPath);
+      } catch (cleanupError) {
+        // Ignore cleanup errors
+      }
+    }
+    
+    console.error('\n❌ Error finalizing submission:');
     console.error(error instanceof Error ? error.message : 'Unknown error');
     process.exit(1);
   }
