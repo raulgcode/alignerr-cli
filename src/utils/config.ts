@@ -10,6 +10,7 @@ const __dirname = path.dirname(__filename);
 
 export const config = {
   basePath: process.env.ALIGNERR_BASE_PATH || '~/Documents/projects/alignerr',
+  sourcePath: process.env.ALIGNERR_SOURCE_PATH || '',
 };
 
 /**

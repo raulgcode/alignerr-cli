@@ -1,25 +1,29 @@
 import prompts from 'prompts';
+import path from 'path';
 
 /**
- * Prompts user for filename if not provided
+ * Generates filename from source path using root folder name
  */
-export async function promptForFilename(providedFilename?: string): Promise<string> {
+export function generateFilenameFromPath(sourcePath: string): string {
+  const folderName = path.basename(sourcePath);
+  return `${folderName}.tar`;
+}
+
+/**
+ * Gets filename - uses provided filename or generates from source path
+ */
+export async function promptForFilename(providedFilename?: string, sourcePath?: string): Promise<string> {
   if (providedFilename) {
     return providedFilename;
   }
 
-  const response = await prompts({
-    type: 'text',
-    name: 'filename',
-    message: 'Enter the tar filename (e.g., submission.tar):',
-    validate: (value) => value.length > 0 ? true : 'Filename is required',
-  });
-
-  if (!response.filename) {
-    throw new Error('Filename is required');
+  // If no filename provided, generate from source path
+  if (sourcePath) {
+    return generateFilenameFromPath(sourcePath);
   }
 
-  return response.filename;
+  // Fallback: should not reach here, but use cwd if needed
+  return generateFilenameFromPath(process.cwd());
 }
 
 /**

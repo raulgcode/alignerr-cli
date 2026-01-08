@@ -16,19 +16,35 @@ describe('git utils', () => {
       const mockHash = 'abc123def456';
       const mockExec = exec as any;
       
-      mockExec.mockImplementation((cmd: string, callback: Function) => {
-        callback(null, { stdout: `${mockHash}\n`, stderr: '' });
+      mockExec.mockImplementation((cmd: string, options: any, callback: Function) => {
+        // Handle both with and without options
+        const cb = typeof options === 'function' ? options : callback;
+        cb(null, { stdout: `${mockHash}\n`, stderr: '' });
       });
 
       const result = await getCurrentCommitHash();
       expect(result).toBe(mockHash);
     });
 
+    it('should return commit hash from specific directory', async () => {
+      const mockHash = 'xyz789abc123';
+      const mockExec = exec as any;
+      
+      mockExec.mockImplementation((cmd: string, options: any, callback: Function) => {
+        const cb = typeof options === 'function' ? options : callback;
+        cb(null, { stdout: `${mockHash}\n`, stderr: '' });
+      });
+
+      const result = await getCurrentCommitHash('/custom/path');
+      expect(result).toBe(mockHash);
+    });
+
     it('should throw error if git command fails', async () => {
       const mockExec = exec as any;
       
-      mockExec.mockImplementation((cmd: string, callback: Function) => {
-        callback(new Error('Git not found'), { stdout: '', stderr: '' });
+      mockExec.mockImplementation((cmd: string, options: any, callback: Function) => {
+        const cb = typeof options === 'function' ? options : callback;
+        cb(new Error('Git not found'), { stdout: '', stderr: '' });
       });
 
       await expect(getCurrentCommitHash()).rejects.toThrow('Failed to get git commit hash');

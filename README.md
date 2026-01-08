@@ -58,17 +58,23 @@ npm install -g alignerr
 ### Basic Command
 
 ```bash
-npx alignerr submission --init --file=<filename>.tar --uuid=<uuid>
+npx alignerr submission --init --file=<filename>.tar --uuid=<uuid> --source=<path-to-source-folder> --clean
 ```
 
 ### Examples
 
 1. **With all parameters provided:**
 ```bash
-npx alignerr submission --init --file=my-submission.tar --uuid=123e4567-e89b-12d3-a456-426614174000
+npx alignerr submission --init --file=my-submission.tar --uuid=123e4567-e89b-12d3-a456-426614174000 --source=/path/to/project
 ```
 
-2. **With interactive prompts (no parameters):**
+2. **With clean flag to start fresh:**
+```bash
+npx alignerr submission --init --uuid=abc123 --source=/path/to/project --clean
+# This will delete any existing submissions for today's date before creating new ones
+```
+
+3. **With interactive prompts (no parameters):**
 ```bash
 npx alignerr submission --init
 ```
@@ -76,11 +82,28 @@ The CLI will prompt you for:
 - Filename (if not provided)
 - UUID (if not provided)
 
-3. **With partial parameters:**
+4. **With partial parameters:**
 ```bash
 npx alignerr submission --init --file=submission.tar
 # Will prompt only for UUID
 ```
+
+5. **Using source from environment variable:**
+```bash
+# Set ALIGNERR_SOURCE_PATH in .env, then run:
+npx alignerr submission --init --file=submission.tar --uuid=abc123
+# Will use source path from .env
+```
+
+### Source Path Priority
+
+The `--source` parameter determines where git commands will be executed. The priority order is:
+
+1. **Command line parameter** (`--source` flag) - highest priority
+2. **Environment variable** (`ALIGNERR_SOURCE_PATH` in `.env`)
+3. **Current working directory** - default fallback
+
+This allows you to track git commits from different project directories while creating submissions.
 
 ## What It Does
 
@@ -107,13 +130,21 @@ When you run the initialization command, the CLI will:
 
 ## Configuration
 
-The base path can be configured via the `.env` file:
+The CLI can be configured via the `.env` file:
 
 ```bash
+# Base path for submissions storage
 ALIGNERR_BASE_PATH=~/Documents/projects/alignerr
+
+# Source folder path where git commands will be executed (optional)
+# If not set, git commands will run in the current directory
+ALIGNERR_SOURCE_PATH=/path/to/your/project
 ```
 
-If not set, it defaults to `~/Documents/projects/alignerr`.
+**Configuration options:**
+
+- `ALIGNERR_BASE_PATH`: Base directory for storing submissions (defaults to `~/Documents/projects/alignerr`)
+- `ALIGNERR_SOURCE_PATH`: Default source directory for git operations (optional, defaults to current directory)
 
 ## Development
 
