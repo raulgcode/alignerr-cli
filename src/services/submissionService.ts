@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import * as tar from 'tar';
 import process from 'process';
+import ignore from 'ignore';
 import { config, expandHomePath, getCurrentDateString } from '../utils/config.js';
 import { promptForFilename, promptForUuid } from '../utils/prompts.js';
 import { getCurrentCommitHash, gitAddAll, createGitDiff, applyGitDiff } from '../utils/git.js';
@@ -56,18 +57,59 @@ async function createSubmissionDirectory(dateString: string, clean: boolean = fa
 }
 
 /**
+ * Reads and parses .gitignore file from source directory
+ */
+async function readGitignore(sourcePath: string): Promise<ReturnType<typeof ignore>> {
+  const ig = ignore();
+  const gitignorePath = path.join(sourcePath, '.gitignore');
+  
+  try {
+    const gitignoreContent = await fs.readFile(gitignorePath, 'utf-8');
+    ig.add(gitignoreContent);
+    console.log(`✓ Loaded .gitignore patterns from source`);
+  } catch (error) {
+    // .gitignore might not exist, which is fine
+    console.log(`ℹ No .gitignore found in source directory`);
+  }
+  
+  return ig;
+}
+
+/**
  * Creates the tar file
  */
 async function createTarFile(submissionDir: string, filename: string, sourcePath: string): Promise<void> {
   const tarPath = path.join(submissionDir, filename);
   
   try {
+    // Read .gitignore patterns from source
+    const ig = await readGitignore(sourcePath);
+    
     // Create a tar archive from the source directory
     await tar.create(
       {
         gzip: false,
         file: tarPath,
         cwd: path.dirname(sourcePath),
+        filter: (filepath: string) => {
+          // Get relative path from the source parent directory
+          const baseName = path.basename(sourcePath);
+          const relativePath = filepath.startsWith(baseName + '/') 
+            ? filepath.substring(baseName.length + 1)
+            : filepath;
+          
+          // Don't filter the root directory itself
+          if (relativePath === '' || relativePath === baseName) {
+            return true;
+          }
+          
+          // Check against .gitignore patterns
+          if (ig.ignores(relativePath)) {
+            return false;
+          }
+          
+          return true;
+        },
       },
       [path.basename(sourcePath)]
     );
