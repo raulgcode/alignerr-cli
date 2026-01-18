@@ -2,15 +2,18 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Load environment variables
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Load environment variables from .env file in project root
+// __dirname is src/utils, so go up two levels to reach project root
+const projectRoot = path.resolve(__dirname, '..', '..');
+dotenv.config({ path: path.join(projectRoot, '.env') });
 
 export const config = {
   basePath: process.env.ALIGNERR_BASE_PATH || '~/Documents/projects/alignerr',
   sourcePath: process.env.ALIGNERR_SOURCE_PATH || '',
+  claudeSessionPath: process.env.CLAUDE_HFI_SESSION_PATH || '/tmp/claude-hfi',
 };
 
 /**
